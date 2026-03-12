@@ -7,11 +7,13 @@ _mock_rmscene = MagicMock()
 _mock_rmc = MagicMock()
 _mock_cairosvg = MagicMock()
 _mock_pypdf = MagicMock()
+_mock_fitz = MagicMock()
 
 sys.modules.setdefault("rmscene", _mock_rmscene)
 sys.modules.setdefault("rmc", _mock_rmc)
 sys.modules.setdefault("cairosvg", _mock_cairosvg)
 sys.modules.setdefault("pypdf", _mock_pypdf)
+sys.modules.setdefault("fitz", _mock_fitz)
 
 from fastapi.testclient import TestClient
 from app.main import app
