@@ -47,11 +47,22 @@ def update_sync_result(files_synced: int, direction: str) -> None:
     _write_status(status)
 
 
-def update_device_info(ip: str, battery: int | None = None) -> None:
-    """Record device info from a push sync."""
+def update_device_info(
+    ip: str,
+    battery: int | None = None,
+    push_files: int | None = None,
+    pull_files: int | None = None,
+) -> None:
+    """Record device info and optional sync results from a push sync."""
     status = _read_status()
     status["device_ip"] = ip
     if battery is not None:
         status["battery"] = battery
+    # When the device reports file counts, record as a sync event
+    if push_files is not None or pull_files is not None:
+        total = (push_files or 0) + (pull_files or 0)
+        status["last_sync"] = datetime.now(timezone.utc).isoformat()
+        status["last_sync_direction"] = "bidirectional"
+        status["files_synced"] = total
     status["device_info_updated"] = datetime.now(timezone.utc).isoformat()
     _write_status(status)

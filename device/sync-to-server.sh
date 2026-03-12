@@ -39,11 +39,16 @@ if [ "${PULL_FILES:-0}" -gt 0 ]; then
     killall -USR1 xochitl 2>/dev/null && log "xochitl signalled" || log "xochitl signal failed"
 fi
 
-# 4. Post device info to remarkable service
+# 4. Post device info + sync results to remarkable service
 MY_IP=$(ip addr show wlan0 2>/dev/null | grep "inet " | awk '{print $2}' | cut -d/ -f1)
-BATTERY=$(cat /sys/class/power_supply/max77818_battery/capacity 2>/dev/null || echo "unknown")
-log "Posting device info: ip=${MY_IP} battery=${BATTERY}"
-wget -q -O /dev/null --post-data="{\"ip\":\"${MY_IP}\",\"battery\":\"${BATTERY}\"}" \
+BATTERY_RAW=$(cat /sys/class/power_supply/max77818_battery/capacity 2>/dev/null)
+if [ -n "$BATTERY_RAW" ] && [ "$BATTERY_RAW" -eq "$BATTERY_RAW" ] 2>/dev/null; then
+    BATTERY_JSON=$BATTERY_RAW
+else
+    BATTERY_JSON=null
+fi
+log "Posting device info: ip=${MY_IP} battery=${BATTERY_JSON} push=${PUSH_FILES:-0} pull=${PULL_FILES:-0}"
+wget -q -O /dev/null --post-data="{\"ip\":\"${MY_IP}\",\"battery\":${BATTERY_JSON},\"push_files\":${PUSH_FILES:-0},\"pull_files\":${PULL_FILES:-0}}" \
      --header="Content-Type: application/json" \
      "${REMARKABLE_API}/sync/device-info" 2>/dev/null
 

@@ -73,6 +73,8 @@ class SyncStatusResponse(BaseModel):
 class DeviceInfoRequest(BaseModel):
     ip: str
     battery: int | None = None
+    push_files: int | None = None
+    pull_files: int | None = None
 
 
 class ToDeviceItem(BaseModel):

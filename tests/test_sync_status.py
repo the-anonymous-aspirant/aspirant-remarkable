@@ -38,13 +38,28 @@ def test_post_device_info(client, mock_sync_status):
     resp = client.post("/sync/device-info", json={"ip": "192.168.1.50", "battery": 72})
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
-    mock_sync_status.update_device_info.assert_called_once_with("192.168.1.50", 72)
+    mock_sync_status.update_device_info.assert_called_once_with(
+        "192.168.1.50", battery=72, push_files=None, pull_files=None,
+    )
 
 
 def test_post_device_info_no_battery(client, mock_sync_status):
     resp = client.post("/sync/device-info", json={"ip": "10.0.0.5"})
     assert resp.status_code == 200
-    mock_sync_status.update_device_info.assert_called_once_with("10.0.0.5", None)
+    mock_sync_status.update_device_info.assert_called_once_with(
+        "10.0.0.5", battery=None, push_files=None, pull_files=None,
+    )
+
+
+def test_post_device_info_with_sync_counts(client, mock_sync_status):
+    resp = client.post("/sync/device-info", json={
+        "ip": "192.168.1.50", "battery": 85, "push_files": 42, "pull_files": 3,
+    })
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+    mock_sync_status.update_device_info.assert_called_once_with(
+        "192.168.1.50", battery=85, push_files=42, pull_files=3,
+    )
 
 
 def test_sync_records_status(client, mock_sync, mock_sync_status):
