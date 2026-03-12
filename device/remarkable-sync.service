@@ -1,16 +1,9 @@
 [Unit]
-Description=Sync reMarkable notebooks to aspirant-online server
+Description=Sync reMarkable notebooks to aspirant-cell
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
 ExecStart=/home/root/sync-to-server.sh
-Environment=SYNC_SERVER_HOST=aspirant.example.com
-Environment=SYNC_SERVER_PORT=8085
-Environment=SYNC_SERVER_DATA_PATH=/data/remarkable
-Environment=SYNC_SERVER_SSH_USER=root
 TimeoutStartSec=600
-
-[Install]
-WantedBy=multi-user.target

@@ -1,9 +1,10 @@
 [Unit]
-Description=Daily midnight sync of reMarkable notebooks
+Description=Daily sync of reMarkable notebooks
 
 [Timer]
 OnCalendar=*-*-* 00:00:00
 Persistent=true
+RandomizedDelaySec=300
 
 [Install]
 WantedBy=timers.target
