@@ -1,90 +1,50 @@
-#!/bin/bash
-# sync-to-server.sh — Runs on the reMarkable Paper Pro
-#
-# 1. Pushes xochitl data to the server via rsync
-# 2. Pulls staged files from server to-device directory
-# 3. Reports device info (IP, battery) to server
-# 4. If new files pulled, signals xochitl to discover them
-#
-# Designed to run as a systemd timer at midnight.
+#!/bin/sh
+# Sync reMarkable notebooks to aspirant-cell
+# Runs as systemd timer or manually
 
-set -euo pipefail
-
-# ----- Configuration -----
-# Override these via environment or edit here
-SERVER_HOST="${SYNC_SERVER_HOST:-aspirant.example.com}"
-SERVER_PORT="${SYNC_SERVER_PORT:-8085}"
-SERVER_DATA_PATH="${SYNC_SERVER_DATA_PATH:-/data/remarkable}"
-SERVER_SSH_USER="${SYNC_SERVER_SSH_USER:-root}"
-SSH_KEY="/home/root/.ssh/id_ed25519"
-
+SERVER_USER="aspirant"
+SERVER_HOST="home.the-aspirant.com"
+SERVER_PORT="41922"
+SSH_KEY="/home/root/.ssh/aspirant_sync_dropbear"
+SSH_CMD="dbclient -i ${SSH_KEY} -y -p ${SERVER_PORT}"
 XOCHITL_DIR="/home/root/.local/share/remarkable/xochitl"
-LOG_TAG="remarkable-sync"
+LOG_FILE="/home/root/sync.log"
+REMARKABLE_API="http://${SERVER_HOST}:8086"
 
-log() {
-    logger -t "$LOG_TAG" "$@"
-    echo "[$(date -Iseconds)] $*"
-}
+log() { echo "$(date +%Y-%m-%dT%H:%M:%S) $1" >> "$LOG_FILE"; }
 
-# ----- Step 1: Push xochitl to server -----
-log "Starting push sync to ${SERVER_HOST}..."
+log "=== Sync started ==="
 
-PUSH_OUTPUT=$(rsync -az --stats \
-    -e "ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no -o ConnectTimeout=30" \
-    "${XOCHITL_DIR}/" \
-    "${SERVER_SSH_USER}@${SERVER_HOST}:${SERVER_DATA_PATH}/xochitl/" \
-    2>&1) || {
-    log "ERROR: Push sync failed: ${PUSH_OUTPUT}"
-    exit 1
-}
+# 1. Push notebooks to server
+log "Pushing xochitl to server..."
+PUSH_OUTPUT=$(rsync -az --stats -e "${SSH_CMD}" "${XOCHITL_DIR}/" "${SERVER_USER}@${SERVER_HOST}:xochitl/" 2>&1)
+PUSH_RC=$?
+PUSH_FILES=$(echo "$PUSH_OUTPUT" | grep "Number of regular files transferred" | awk -F: '{print $2}' | tr -d " ,")
+log "Push complete (rc=${PUSH_RC}): ${PUSH_FILES:-0} files transferred"
 
-PUSH_FILES=$(echo "$PUSH_OUTPUT" | grep "Number of regular files transferred" | awk '{print $NF}' || echo "0")
-log "Push complete: ${PUSH_FILES} files transferred"
-
-# ----- Step 2: Pull to-device files from server -----
-log "Pulling to-device files from server..."
-
-PULL_OUTPUT=$(rsync -az --stats --remove-source-files \
-    -e "ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no -o ConnectTimeout=30" \
-    "${SERVER_SSH_USER}@${SERVER_HOST}:${SERVER_DATA_PATH}/to-device/" \
-    "${XOCHITL_DIR}/" \
-    2>&1) || {
-    log "WARNING: Pull sync failed (non-fatal): ${PULL_OUTPUT}"
-    PULL_FILES=0
-}
-
-PULL_FILES=$(echo "$PULL_OUTPUT" | grep "Number of regular files transferred" | awk '{print $NF}' || echo "0")
-log "Pull complete: ${PULL_FILES} files transferred"
-
-# ----- Step 3: Report device info -----
-DEVICE_IP=$(ip addr show wlan0 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d/ -f1 || echo "unknown")
-
-BATTERY_LEVEL=""
-if [ -f /sys/class/power_supply/bq27441-0/capacity ]; then
-    BATTERY_LEVEL=$(cat /sys/class/power_supply/bq27441-0/capacity)
-elif [ -f /sys/class/power_supply/max77818_battery/capacity ]; then
-    BATTERY_LEVEL=$(cat /sys/class/power_supply/max77818_battery/capacity)
+if [ "$PUSH_RC" -ne 0 ]; then
+    log "Push failed: $PUSH_OUTPUT"
 fi
 
-if [ -n "$BATTERY_LEVEL" ]; then
-    PAYLOAD="{\"ip\": \"${DEVICE_IP}\", \"battery\": ${BATTERY_LEVEL}}"
-else
-    PAYLOAD="{\"ip\": \"${DEVICE_IP}\"}"
+# 2. Pull to-device files from server
+log "Pulling to-device from server..."
+PULL_OUTPUT=$(rsync -az --stats --remove-source-files -e "${SSH_CMD}" "${SERVER_USER}@${SERVER_HOST}:to-device/" "${XOCHITL_DIR}/" 2>&1)
+PULL_RC=$?
+PULL_FILES=$(echo "$PULL_OUTPUT" | grep "Number of regular files transferred" | awk -F: '{print $2}' | tr -d " ,")
+log "Pull complete (rc=${PULL_RC}): ${PULL_FILES:-0} files transferred"
+
+# 3. If new files pulled, signal xochitl to discover them
+if [ "${PULL_FILES:-0}" -gt 0 ]; then
+    log "Signalling xochitl to discover new files..."
+    killall -USR1 xochitl 2>/dev/null && log "xochitl signalled" || log "xochitl signal failed"
 fi
 
-log "Reporting device info: ${PAYLOAD}"
+# 4. Post device info to remarkable service
+MY_IP=$(ip addr show wlan0 2>/dev/null | grep "inet " | awk '{print $2}' | cut -d/ -f1)
+BATTERY=$(cat /sys/class/power_supply/max77818_battery/capacity 2>/dev/null || echo "unknown")
+log "Posting device info: ip=${MY_IP} battery=${BATTERY}"
+wget -q -O /dev/null --post-data="{\"ip\":\"${MY_IP}\",\"battery\":\"${BATTERY}\"}" \
+     --header="Content-Type: application/json" \
+     "${REMARKABLE_API}/sync/device-info" 2>/dev/null
 
-# POST directly to the remarkable service (not through auth proxy)
-curl -sf -X POST \
-    -H "Content-Type: application/json" \
-    -d "${PAYLOAD}" \
-    "http://${SERVER_HOST}:${SERVER_PORT}/sync/device-info" \
-    >/dev/null 2>&1 || log "WARNING: Failed to report device info (non-fatal)"
-
-# ----- Step 4: Signal xochitl if new files pulled -----
-if [ "${PULL_FILES}" -gt 0 ] 2>/dev/null; then
-    log "New files pulled, signaling xochitl to discover them..."
-    killall -USR1 xochitl 2>/dev/null || log "WARNING: Could not signal xochitl"
-fi
-
-log "Sync complete (push: ${PUSH_FILES}, pull: ${PULL_FILES})"
+log "=== Sync finished ==="
