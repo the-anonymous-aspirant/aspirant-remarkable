@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_render_invalid_dpi(client, mock_parser, mock_renderer):
-    mock_parser.get_rm_path.return_value = Path("/fake/path.rm")
+    mock_parser.get_page_source.return_value = {"type": "rm", "path": Path("/fake/path.rm")}
 
     resp = client.get("/notebooks/abc-123/pages/0/render?dpi=999")
     assert resp.status_code == 400
@@ -12,7 +12,7 @@ def test_render_invalid_dpi(client, mock_parser, mock_renderer):
 
 def test_render_page_not_found(client, mock_parser, mock_renderer):
     from app.parser import PageNotFoundError
-    mock_parser.get_rm_path.side_effect = PageNotFoundError("Page 99 out of range.")
+    mock_parser.get_page_source.side_effect = PageNotFoundError("Page 99 out of range.")
 
     resp = client.get("/notebooks/abc-123/pages/99/render")
     assert resp.status_code == 400
@@ -21,7 +21,7 @@ def test_render_page_not_found(client, mock_parser, mock_renderer):
 
 def test_render_notebook_not_found(client, mock_parser, mock_renderer):
     from app.parser import NotebookNotFoundError
-    mock_parser.get_rm_path.side_effect = NotebookNotFoundError("Not found")
+    mock_parser.get_page_source.side_effect = NotebookNotFoundError("Not found")
 
     resp = client.get("/notebooks/nonexistent/pages/0/render")
     assert resp.status_code == 404
@@ -29,7 +29,7 @@ def test_render_notebook_not_found(client, mock_parser, mock_renderer):
 
 
 def test_render_png_success(client, mock_parser, mock_renderer):
-    mock_parser.get_rm_path.return_value = Path("/fake/path.rm")
+    mock_parser.get_page_source.return_value = {"type": "rm", "path": Path("/fake/path.rm")}
     mock_renderer.render_page_png.return_value = b"\x89PNG fake"
 
     resp = client.get("/notebooks/abc-123/pages/0/render?format=png&dpi=300")
@@ -39,12 +39,24 @@ def test_render_png_success(client, mock_parser, mock_renderer):
 
 
 def test_render_pdf_success(client, mock_parser, mock_renderer):
-    mock_parser.get_rm_path.return_value = Path("/fake/path.rm")
+    mock_parser.get_page_source.return_value = {"type": "rm", "path": Path("/fake/path.rm")}
     mock_renderer.render_page_pdf.return_value = b"%PDF-1.4 fake"
 
     resp = client.get("/notebooks/abc-123/pages/0/render?format=pdf&dpi=300")
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/pdf"
+
+
+def test_render_pdf_backed_png(client, mock_parser, mock_renderer):
+    mock_parser.get_page_source.return_value = {
+        "type": "pdf", "path": Path("/fake/notebook.pdf"), "pdf_page": 3,
+    }
+    mock_renderer.render_pdf_page_png.return_value = b"\x89PNG pdf page"
+
+    resp = client.get("/notebooks/abc-123/pages/3/render?format=png&dpi=300")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/png"
+    assert resp.content == b"\x89PNG pdf page"
 
 
 def test_export_pdf_success(client, mock_parser, mock_renderer):
@@ -55,8 +67,11 @@ def test_export_pdf_success(client, mock_parser, mock_renderer):
         "last_modified": "2026-03-12T10:00:00+00:00",
         "pages": [0, 1],
     }
-    mock_parser.get_rm_path.side_effect = [Path("/fake/0.rm"), Path("/fake/1.rm")]
-    mock_renderer.export_pdf.return_value = b"%PDF-1.4 merged"
+    mock_parser.get_page_source.side_effect = [
+        {"type": "rm", "path": Path("/fake/0.rm")},
+        {"type": "rm", "path": Path("/fake/1.rm")},
+    ]
+    mock_renderer.export_mixed_pdf.return_value = b"%PDF-1.4 merged"
 
     resp = client.get("/notebooks/abc-123/export?format=pdf&dpi=300")
     assert resp.status_code == 200
@@ -71,8 +86,8 @@ def test_export_png_zip_success(client, mock_parser, mock_renderer):
         "last_modified": "2026-03-12T10:00:00+00:00",
         "pages": [0],
     }
-    mock_parser.get_rm_path.return_value = Path("/fake/0.rm")
-    mock_renderer.export_pngs_zip.return_value = b"PK zip data"
+    mock_parser.get_page_source.return_value = {"type": "rm", "path": Path("/fake/0.rm")}
+    mock_renderer.export_mixed_zip.return_value = b"PK zip data"
 
     resp = client.get("/notebooks/abc-123/export?format=png&dpi=300")
     assert resp.status_code == 200

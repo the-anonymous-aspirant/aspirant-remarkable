@@ -9,7 +9,7 @@ def test_health_returns_200(client):
     data = resp.json()
     assert data["status"] in ("ok", "degraded")
     assert data["service"] == "remarkable"
-    assert data["version"] == "1.1.0"
+    assert data["version"] == "1.2.0"
     assert "checks" in data
     assert "rmscene" in data["checks"]
     assert "rmc" in data["checks"]
