@@ -1,4 +1,4 @@
-def test_sync_success(client, mock_sync):
+def test_sync_success(client, mock_sync, mock_sync_status):
     mock_sync.sync_from_remarkable.return_value = (42, "10.11.99.1")
 
     resp = client.post("/sync")
@@ -7,9 +7,10 @@ def test_sync_success(client, mock_sync):
     assert data["status"] == "ok"
     assert data["files_synced"] == 42
     assert data["host"] == "10.11.99.1"
+    mock_sync_status.update_sync_result.assert_called_once_with(42, "pull")
 
 
-def test_sync_with_custom_host(client, mock_sync):
+def test_sync_with_custom_host(client, mock_sync, mock_sync_status):
     mock_sync.sync_from_remarkable.return_value = (10, "192.168.1.95")
 
     resp = client.post("/sync", json={"host": "192.168.1.95"})
