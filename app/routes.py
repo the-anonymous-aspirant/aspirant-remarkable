@@ -259,7 +259,12 @@ def get_sync_status():
 
 @router.post("/sync/device-info")
 def post_device_info(body: DeviceInfoRequest):
-    sync_status.update_device_info(body.ip, body.battery)
+    sync_status.update_device_info(
+        body.ip,
+        battery=body.battery,
+        push_files=body.push_files,
+        pull_files=body.pull_files,
+    )
     return {"status": "ok"}
 
 
