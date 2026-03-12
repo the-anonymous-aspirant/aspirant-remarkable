@@ -109,10 +109,13 @@ def get_folder_tree() -> list[dict]:
     roots: list[dict] = []
     for item in items:
         parent = item["parent_id"]
-        if parent and parent in by_id:
-            by_id[parent]["children"].append(item)
-        else:
+        if not parent:
+            # True root items (parent_id is None or empty)
             roots.append(item)
+        elif parent in by_id:
+            # Item belongs to a known, non-deleted folder
+            by_id[parent]["children"].append(item)
+        # else: parent is a deleted/unknown folder (e.g. "trash") — skip
 
     return roots
 
@@ -219,8 +222,14 @@ def _get_page_ids(notebook_id: str) -> list[str]:
     return []
 
 
-def get_rm_path(notebook_id: str, page_num: int) -> Path:
-    """Resolve the .rm file path for a specific page number."""
+def get_page_source(notebook_id: str, page_num: int) -> dict:
+    """Resolve the source for rendering a specific page.
+
+    Returns a dict with:
+      - "type": "rm" or "pdf"
+      - "path": Path to .rm file or .pdf file
+      - "pdf_page": (only for type "pdf") zero-based page index within the PDF
+    """
     page_ids = _get_page_ids(notebook_id)
     if not page_ids:
         raise NotebookNotFoundError(f"Notebook {notebook_id} not found or has no pages.")
@@ -232,9 +241,31 @@ def get_rm_path(notebook_id: str, page_num: int) -> Path:
 
     page_id = page_ids[page_num]
     xochitl = _xochitl_path()
+
+    # Check for .rm annotation file first
     rm_path = xochitl / notebook_id / f"{page_id}.rm"
+    if rm_path.exists():
+        return {"type": "rm", "path": rm_path}
 
-    if not rm_path.exists():
-        raise PageNotFoundError(f"Page file not found: {rm_path}")
+    # Check for a backing PDF
+    pdf_path = xochitl / f"{notebook_id}.pdf"
+    if pdf_path.exists():
+        return {"type": "pdf", "path": pdf_path, "pdf_page": page_num}
 
-    return rm_path
+    raise PageNotFoundError(
+        f"No renderable source for page {page_num}: no .rm file and no backing PDF."
+    )
+
+
+def get_rm_path(notebook_id: str, page_num: int) -> Path:
+    """Resolve the .rm file path for a specific page number.
+
+    Kept for backward compatibility with export functions.
+    Raises PageNotFoundError if the page has no .rm file.
+    """
+    source = get_page_source(notebook_id, page_num)
+    if source["type"] != "rm":
+        raise PageNotFoundError(
+            f"Page {page_num} is PDF-backed and has no .rm annotations."
+        )
+    return source["path"]

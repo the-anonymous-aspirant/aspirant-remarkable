@@ -12,5 +12,5 @@ SYNC_TIMEOUT = 300  # 5 minutes
 TO_DEVICE_PATH = os.path.join(DATA_PATH, "to-device")
 SYNC_STATUS_PATH = os.path.join(DATA_PATH, "sync_status.json")
 
-REMARKABLE_VERSION = "1.1.0"
+REMARKABLE_VERSION = "1.2.0"
 SERVICE_NAME = "remarkable"

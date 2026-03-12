@@ -162,19 +162,28 @@ def render_page(
         )
 
     try:
-        rm_path = parser.get_rm_path(notebook_id, page_num)
+        source = parser.get_page_source(notebook_id, page_num)
     except NotebookNotFoundError:
         return _error(404, "not_found", f"Notebook {notebook_id} not found.")
     except PageNotFoundError as exc:
         return _error(400, "validation_error", str(exc))
 
     try:
-        if format == "png":
-            data = renderer.render_page_png(rm_path, dpi)
-            return Response(content=data, media_type="image/png")
+        if source["type"] == "rm":
+            if format == "png":
+                data = renderer.render_page_png(source["path"], dpi)
+                return Response(content=data, media_type="image/png")
+            else:
+                data = renderer.render_page_pdf(source["path"], dpi)
+                return Response(content=data, media_type="application/pdf")
         else:
-            data = renderer.render_page_pdf(rm_path, dpi)
-            return Response(content=data, media_type="application/pdf")
+            # PDF-backed page
+            if format == "png":
+                data = renderer.render_pdf_page_png(source["path"], source["pdf_page"], dpi)
+                return Response(content=data, media_type="image/png")
+            else:
+                data = renderer.render_pdf_page_pdf(source["path"], source["pdf_page"])
+                return Response(content=data, media_type="application/pdf")
     except RenderError as exc:
         return _error(500, "internal_error", str(exc))
 
@@ -206,20 +215,20 @@ def export_notebook(
     else:
         page_nums = nb["pages"]
 
-    # Resolve .rm paths for requested pages
-    rm_paths = []
+    # Resolve page sources
+    page_sources = []
     for page_num in page_nums:
         try:
-            rm_paths.append(parser.get_rm_path(notebook_id, page_num))
-        except PageNotFoundError as exc:
+            page_sources.append(parser.get_page_source(notebook_id, page_num))
+        except (NotebookNotFoundError, PageNotFoundError) as exc:
             return _error(400, "validation_error", str(exc))
 
-    if not rm_paths:
+    if not page_sources:
         return _error(400, "validation_error", "No pages to export.")
 
     try:
         if format == "pdf":
-            data = renderer.export_pdf(rm_paths, dpi)
+            data = renderer.export_mixed_pdf(page_sources, dpi)
             filename = f"{nb['name']}.pdf"
             return Response(
                 content=data,
@@ -227,7 +236,7 @@ def export_notebook(
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'},
             )
         else:
-            data = renderer.export_pngs_zip(rm_paths, dpi)
+            data = renderer.export_mixed_zip(page_sources, dpi)
             filename = f"{nb['name']}.zip"
             return Response(
                 content=data,
