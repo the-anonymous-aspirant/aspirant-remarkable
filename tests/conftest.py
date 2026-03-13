@@ -11,6 +11,10 @@ _mock_fitz = MagicMock()
 
 sys.modules.setdefault("rmscene", _mock_rmscene)
 sys.modules.setdefault("rmc", _mock_rmc)
+sys.modules.setdefault("rmc.exporters", _mock_rmc.exporters)
+sys.modules.setdefault("rmc.exporters.writing_tools", _mock_rmc.exporters.writing_tools)
+# Provide a real dict for RM_PALETTE so the fallback wrapper works
+_mock_rmc.exporters.writing_tools.RM_PALETTE = {}
 sys.modules.setdefault("cairosvg", _mock_cairosvg)
 sys.modules.setdefault("pypdf", _mock_pypdf)
 sys.modules.setdefault("fitz", _mock_fitz)
