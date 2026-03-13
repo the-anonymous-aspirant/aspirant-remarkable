@@ -1,9 +1,10 @@
+import asyncio
 import logging
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, Response
 
-from app.config import ALLOWED_DPI, DEFAULT_DPI, SERVICE_NAME, REMARKABLE_VERSION, DATA_PATH
+from app.config import ALLOWED_DPI, DEFAULT_DPI, SERVICE_NAME, REMARKABLE_VERSION, DATA_PATH, RENDER_TIMEOUT
 from app.schemas import (
     HealthResponse, SyncRequest, SyncResponse, NotebookSummary, NotebookDetail,
     FolderSummary, FolderTreeNode, SyncStatusResponse, DeviceInfoRequest, ToDeviceItem,
@@ -15,6 +16,37 @@ from app.renderer import RenderError
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Track the current render task so new requests can cancel in-flight ones.
+_current_render: asyncio.Task | None = None
+
+
+async def _run_render(fn, *args):
+    """Run a render function in a thread with timeout and cancellation.
+
+    Only one render runs at a time — starting a new one cancels any in-flight
+    render so they don't compete for CPU.
+    """
+    global _current_render
+
+    # Cancel any in-flight render
+    if _current_render is not None and not _current_render.done():
+        _current_render.cancel()
+
+    task = asyncio.ensure_future(
+        asyncio.wait_for(
+            asyncio.to_thread(fn, *args),
+            timeout=RENDER_TIMEOUT,
+        )
+    )
+    _current_render = task
+
+    try:
+        return await task
+    except asyncio.TimeoutError:
+        raise RenderError(f"Rendering timed out after {RENDER_TIMEOUT} seconds. Try a lower DPI or simpler page.")
+    except asyncio.CancelledError:
+        raise RenderError("Render cancelled by a newer request.")
 
 
 def _error(status_code: int, code: str, message: str) -> JSONResponse:
@@ -149,7 +181,7 @@ def get_notebook(notebook_id: str):
 
 
 @router.get("/notebooks/{notebook_id}/pages/{page_num}/render")
-def render_page(
+async def render_page(
     notebook_id: str,
     page_num: int,
     format: str = Query("png", pattern="^(png|pdf)$"),
@@ -171,25 +203,25 @@ def render_page(
     try:
         if source["type"] == "rm":
             if format == "png":
-                data = renderer.render_page_png(source["path"], dpi)
+                data = await _run_render(renderer.render_page_png, source["path"], dpi)
                 return Response(content=data, media_type="image/png")
             else:
-                data = renderer.render_page_pdf(source["path"], dpi)
+                data = await _run_render(renderer.render_page_pdf, source["path"], dpi)
                 return Response(content=data, media_type="application/pdf")
         else:
             # PDF-backed page
             if format == "png":
-                data = renderer.render_pdf_page_png(source["path"], source["pdf_page"], dpi)
+                data = await _run_render(renderer.render_pdf_page_png, source["path"], source["pdf_page"], dpi)
                 return Response(content=data, media_type="image/png")
             else:
-                data = renderer.render_pdf_page_pdf(source["path"], source["pdf_page"])
+                data = await _run_render(renderer.render_pdf_page_pdf, source["path"], source["pdf_page"])
                 return Response(content=data, media_type="application/pdf")
     except RenderError as exc:
         return _error(500, "internal_error", str(exc))
 
 
 @router.get("/notebooks/{notebook_id}/export")
-def export_notebook(
+async def export_notebook(
     notebook_id: str,
     format: str = Query("pdf", pattern="^(pdf|png)$"),
     dpi: int = Query(DEFAULT_DPI),
@@ -228,7 +260,7 @@ def export_notebook(
 
     try:
         if format == "pdf":
-            data = renderer.export_mixed_pdf(page_sources, dpi)
+            data = await _run_render(renderer.export_mixed_pdf, page_sources, dpi)
             filename = f"{nb['name']}.pdf"
             return Response(
                 content=data,
@@ -236,7 +268,7 @@ def export_notebook(
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'},
             )
         else:
-            data = renderer.export_mixed_zip(page_sources, dpi)
+            data = await _run_render(renderer.export_mixed_zip, page_sources, dpi)
             filename = f"{nb['name']}.zip"
             return Response(
                 content=data,
