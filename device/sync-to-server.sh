@@ -5,12 +5,10 @@
 SERVER_USER="aspirant"
 SERVER_HOST="home.the-aspirant.com"
 SERVER_PORT="41922"
-SERVER_LAN_IP="192.168.1.66"
 SSH_KEY="/home/root/.ssh/aspirant_sync_dropbear"
 SSH_CMD="dbclient -i ${SSH_KEY} -y -p ${SERVER_PORT}"
 XOCHITL_DIR="/home/root/.local/share/remarkable/xochitl"
 LOG_FILE="/home/root/sync.log"
-REMARKABLE_API="http://${SERVER_LAN_IP}:8086"
 
 log() { echo "$(date +%Y-%m-%dT%H:%M:%S) $1" >> "$LOG_FILE"; }
 
@@ -40,7 +38,7 @@ if [ "${PULL_FILES:-0}" -gt 0 ]; then
     killall -USR1 xochitl 2>/dev/null && log "xochitl signalled" || log "xochitl signal failed"
 fi
 
-# 4. Post device info + sync results to remarkable service
+# 4. Post device info + sync results via SSH (runs on server, hits localhost)
 MY_IP=$(ip addr show wlan0 2>/dev/null | grep "inet " | awk '{print $2}' | cut -d/ -f1)
 BATTERY_RAW=$(cat /sys/class/power_supply/max77818_battery/capacity 2>/dev/null)
 if [ -n "$BATTERY_RAW" ] && [ "$BATTERY_RAW" -eq "$BATTERY_RAW" ] 2>/dev/null; then
@@ -48,9 +46,14 @@ if [ -n "$BATTERY_RAW" ] && [ "$BATTERY_RAW" -eq "$BATTERY_RAW" ] 2>/dev/null; t
 else
     BATTERY_JSON=null
 fi
+PAYLOAD="{\"ip\":\"${MY_IP}\",\"battery\":${BATTERY_JSON},\"push_files\":${PUSH_FILES:-0},\"pull_files\":${PULL_FILES:-0}}"
 log "Posting device info: ip=${MY_IP} battery=${BATTERY_JSON} push=${PUSH_FILES:-0} pull=${PULL_FILES:-0}"
-wget -q -O /dev/null --post-data="{\"ip\":\"${MY_IP}\",\"battery\":${BATTERY_JSON},\"push_files\":${PUSH_FILES:-0},\"pull_files\":${PULL_FILES:-0}}" \
-     --header="Content-Type: application/json" \
-     "${REMARKABLE_API}/sync/device-info" 2>/dev/null
+${SSH_CMD} ${SERVER_USER}@${SERVER_HOST} \
+    "curl -sf -o /dev/null -X POST -H 'Content-Type: application/json' -d '${PAYLOAD}' http://localhost:8086/sync/device-info" \
+    >/dev/null 2>&1
+POST_RC=$?
+if [ "$POST_RC" -ne 0 ]; then
+    log "Device info POST failed (rc=${POST_RC})"
+fi
 
 log "=== Sync finished ==="
