@@ -5,11 +5,12 @@
 SERVER_USER="aspirant"
 SERVER_HOST="home.the-aspirant.com"
 SERVER_PORT="41922"
+SERVER_LAN_IP="192.168.1.66"
 SSH_KEY="/home/root/.ssh/aspirant_sync_dropbear"
 SSH_CMD="dbclient -i ${SSH_KEY} -y -p ${SERVER_PORT}"
 XOCHITL_DIR="/home/root/.local/share/remarkable/xochitl"
 LOG_FILE="/home/root/sync.log"
-REMARKABLE_API="http://${SERVER_HOST}:8086"
+REMARKABLE_API="http://${SERVER_LAN_IP}:8086"
 
 log() { echo "$(date +%Y-%m-%dT%H:%M:%S) $1" >> "$LOG_FILE"; }
 
