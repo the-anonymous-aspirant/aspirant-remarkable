@@ -8,10 +8,32 @@ import fitz  # pymupdf
 from pypdf import PdfWriter, PdfReader
 from rmscene import read_tree
 from rmc import tree_to_svg
+from rmc.exporters import writing_tools
 
 from app.config import ALLOWED_DPI, DEFAULT_DPI
 
 logger = logging.getLogger(__name__)
+
+# Patch rmc's color palette to support newer reMarkable Paper Pro colors.
+# The rmc library (0.3.0) is missing color 9 and may lack future additions.
+_EXTRA_COLORS = {
+    9: (255, 175, 99),   # Orange (Paper Pro highlighter)
+}
+for _cid, _rgb in _EXTRA_COLORS.items():
+    if _cid not in writing_tools.RM_PALETTE:
+        writing_tools.RM_PALETTE[_cid] = _rgb
+
+# Wrap the palette so unknown color IDs fall back to black instead of crashing.
+_original_palette = writing_tools.RM_PALETTE
+
+
+class _FallbackPalette(dict):
+    def __missing__(self, key):
+        logger.warning("Unknown reMarkable color ID %d, falling back to black", key)
+        return (0, 0, 0)
+
+
+writing_tools.RM_PALETTE = _FallbackPalette(_original_palette)
 
 
 class RenderError(Exception):
