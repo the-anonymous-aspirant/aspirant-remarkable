@@ -8,6 +8,7 @@ SSH_KEY_PATH = os.path.join(SSH_DIR, "id_ed25519")
 ALLOWED_DPI = [150, 300, 600, 1200]
 DEFAULT_DPI = 300
 SYNC_TIMEOUT = 300  # 5 minutes
+RENDER_TIMEOUT = 60  # seconds — abort renders that take longer
 
 TO_DEVICE_PATH = os.path.join(DATA_PATH, "to-device")
 SYNC_STATUS_PATH = os.path.join(DATA_PATH, "sync_status.json")
