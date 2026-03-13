@@ -14,7 +14,7 @@ if [ -z "$SSH_ORIGINAL_COMMAND" ]; then
     exit 1
 fi
 
-# Only allow rsync server commands
+# Only allow rsync and device-info POST commands
 case "$SSH_ORIGINAL_COMMAND" in
     rsync\ --server*)
         # Extract the path argument (last argument)
@@ -32,9 +32,15 @@ case "$SSH_ORIGINAL_COMMAND" in
                 ;;
         esac
         ;;
+    curl*http://localhost:8086/sync/device-info*)
+        # Allow posting device info to the remarkable service (localhost only)
+        # Use bash -c to properly handle quoted arguments in the command
+        echo "$(date -Iseconds) ALLOWED device-info: $SSH_ORIGINAL_COMMAND" >> "$LOG" 2>/dev/null
+        exec bash -c "$SSH_ORIGINAL_COMMAND"
+        ;;
     *)
-        echo "$(date -Iseconds) DENIED non-rsync: $SSH_ORIGINAL_COMMAND" >> "$LOG" 2>/dev/null
-        echo "Only rsync is allowed" >&2
+        echo "$(date -Iseconds) DENIED: $SSH_ORIGINAL_COMMAND" >> "$LOG" 2>/dev/null
+        echo "Command not allowed" >&2
         exit 1
         ;;
 esac
