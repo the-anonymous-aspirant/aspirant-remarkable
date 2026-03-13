@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, Response
 
-from app.config import ALLOWED_DPI, DEFAULT_DPI, SERVICE_NAME, REMARKABLE_VERSION, DATA_PATH, RENDER_TIMEOUT
+from app.config import ALLOWED_DPI, DEFAULT_DPI, ALLOWED_QUALITY, DEFAULT_QUALITY, SERVICE_NAME, REMARKABLE_VERSION, DATA_PATH, RENDER_TIMEOUT
 from app.schemas import (
     HealthResponse, SyncRequest, SyncResponse, NotebookSummary, NotebookDetail,
     FolderSummary, FolderTreeNode, SyncStatusResponse, DeviceInfoRequest, ToDeviceItem,
@@ -186,11 +186,17 @@ async def render_page(
     page_num: int,
     format: str = Query("png", pattern="^(png|pdf)$"),
     dpi: int = Query(DEFAULT_DPI),
+    quality: str = Query(DEFAULT_QUALITY),
 ):
     if dpi not in ALLOWED_DPI:
         return _error(
             400, "validation_error",
             f"Invalid DPI: {dpi}. Allowed values: {ALLOWED_DPI}",
+        )
+    if quality not in ALLOWED_QUALITY:
+        return _error(
+            400, "validation_error",
+            f"Invalid quality: {quality}. Allowed values: {ALLOWED_QUALITY}",
         )
 
     try:
@@ -203,13 +209,13 @@ async def render_page(
     try:
         if source["type"] == "rm":
             if format == "png":
-                data = await _run_render(renderer.render_page_png, source["path"], dpi)
+                data = await _run_render(renderer.render_page_png, source["path"], dpi, quality)
                 return Response(content=data, media_type="image/png")
             else:
-                data = await _run_render(renderer.render_page_pdf, source["path"], dpi)
+                data = await _run_render(renderer.render_page_pdf, source["path"], dpi, quality)
                 return Response(content=data, media_type="application/pdf")
         else:
-            # PDF-backed page
+            # PDF-backed page — quality doesn't apply
             if format == "png":
                 data = await _run_render(renderer.render_pdf_page_png, source["path"], source["pdf_page"], dpi)
                 return Response(content=data, media_type="image/png")
@@ -225,12 +231,18 @@ async def export_notebook(
     notebook_id: str,
     format: str = Query("pdf", pattern="^(pdf|png)$"),
     dpi: int = Query(DEFAULT_DPI),
+    quality: str = Query(DEFAULT_QUALITY),
     pages: str = Query(None, description="Comma-separated page numbers (e.g., 0,1,2). Omit for all pages."),
 ):
     if dpi not in ALLOWED_DPI:
         return _error(
             400, "validation_error",
             f"Invalid DPI: {dpi}. Allowed values: {ALLOWED_DPI}",
+        )
+    if quality not in ALLOWED_QUALITY:
+        return _error(
+            400, "validation_error",
+            f"Invalid quality: {quality}. Allowed values: {ALLOWED_QUALITY}",
         )
 
     try:
@@ -260,7 +272,7 @@ async def export_notebook(
 
     try:
         if format == "pdf":
-            data = await _run_render(renderer.export_mixed_pdf, page_sources, dpi)
+            data = await _run_render(renderer.export_mixed_pdf, page_sources, dpi, quality)
             filename = f"{nb['name']}.pdf"
             return Response(
                 content=data,
@@ -268,7 +280,7 @@ async def export_notebook(
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'},
             )
         else:
-            data = await _run_render(renderer.export_mixed_zip, page_sources, dpi)
+            data = await _run_render(renderer.export_mixed_zip, page_sources, dpi, quality)
             filename = f"{nb['name']}.zip"
             return Response(
                 content=data,
