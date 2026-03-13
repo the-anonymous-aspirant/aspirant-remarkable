@@ -212,7 +212,11 @@ def _get_page_ids(notebook_id: str) -> list[str]:
     cpages = content.get("cPages", {})
     if isinstance(cpages, dict):
         pages = cpages.get("pages", [])
-        return [p.get("id", "") for p in pages if isinstance(p, dict)]
+        return [
+            p.get("id", "") for p in pages
+            if isinstance(p, dict)
+            and not p.get("deleted", {}).get("value", False)
+        ]
 
     # Fallback: pages array at top level
     pages = content.get("pages", [])
