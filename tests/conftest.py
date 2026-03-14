@@ -10,6 +10,8 @@ _mock_pypdf = MagicMock()
 _mock_fitz = MagicMock()
 
 sys.modules.setdefault("rmscene", _mock_rmscene)
+sys.modules.setdefault("rmscene.text", _mock_rmscene.text)
+sys.modules.setdefault("rmscene.scene_items", _mock_rmscene.scene_items)
 sys.modules.setdefault("rmc", _mock_rmc)
 sys.modules.setdefault("rmc.exporters", _mock_rmc.exporters)
 sys.modules.setdefault("rmc.exporters.writing_tools", _mock_rmc.exporters.writing_tools)

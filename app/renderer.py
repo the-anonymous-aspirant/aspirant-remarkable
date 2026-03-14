@@ -10,7 +10,7 @@ from rmscene import read_tree
 from rmc import tree_to_svg
 from rmc.exporters import writing_tools
 
-from app.config import ALLOWED_DPI, DEFAULT_DPI
+from app.config import ALLOWED_DPI, DEFAULT_DPI, ALLOWED_QUALITY, DEFAULT_QUALITY
 
 logger = logging.getLogger(__name__)
 
@@ -48,22 +48,35 @@ def validate_dpi(dpi: int) -> int:
     return dpi
 
 
-def render_page_svg(rm_path: Path) -> str:
+def validate_quality(quality: str) -> str:
+    if quality not in ALLOWED_QUALITY:
+        raise ValueError(
+            f"Invalid quality: {quality}. Allowed values: {ALLOWED_QUALITY}"
+        )
+    return quality
+
+
+def render_page_svg(rm_path: Path, quality: str = DEFAULT_QUALITY) -> str:
     """Parse .rm file and convert to SVG string."""
+    quality = validate_quality(quality)
     try:
         with open(rm_path, "rb") as f:
             tree = read_tree(f)
         svg_buffer = io.StringIO()
-        tree_to_svg(tree, svg_buffer)
+        if quality == "fine":
+            from app.svg_export import tree_to_svg_fine
+            tree_to_svg_fine(tree, svg_buffer)
+        else:
+            tree_to_svg(tree, svg_buffer)
         return svg_buffer.getvalue()
     except Exception as exc:
         raise RenderError(f"Failed to render SVG from {rm_path}: {exc}")
 
 
-def render_page_png(rm_path: Path, dpi: int = DEFAULT_DPI) -> bytes:
+def render_page_png(rm_path: Path, dpi: int = DEFAULT_DPI, quality: str = DEFAULT_QUALITY) -> bytes:
     """Render .rm file to PNG at specified DPI."""
     dpi = validate_dpi(dpi)
-    svg_str = render_page_svg(rm_path)
+    svg_str = render_page_svg(rm_path, quality)
 
     # reMarkable display is 1404x1872 pixels at ~226 DPI
     # Scale factor relative to native resolution
@@ -79,10 +92,10 @@ def render_page_png(rm_path: Path, dpi: int = DEFAULT_DPI) -> bytes:
         raise RenderError(f"Failed to convert SVG to PNG: {exc}")
 
 
-def render_page_pdf(rm_path: Path, dpi: int = DEFAULT_DPI) -> bytes:
+def render_page_pdf(rm_path: Path, dpi: int = DEFAULT_DPI, quality: str = DEFAULT_QUALITY) -> bytes:
     """Render .rm file to a single-page PDF at specified DPI."""
     dpi = validate_dpi(dpi)
-    svg_str = render_page_svg(rm_path)
+    svg_str = render_page_svg(rm_path, quality)
 
     scale = dpi / 226.0
 
@@ -135,13 +148,13 @@ def render_pdf_page_pdf(pdf_path: Path, page_num: int) -> bytes:
         raise RenderError(f"Failed to extract PDF page {page_num}: {exc}")
 
 
-def export_pdf(rm_paths: list[Path], dpi: int = DEFAULT_DPI) -> bytes:
+def export_pdf(rm_paths: list[Path], dpi: int = DEFAULT_DPI, quality: str = DEFAULT_QUALITY) -> bytes:
     """Render multiple .rm pages into a single merged PDF."""
     dpi = validate_dpi(dpi)
     writer = PdfWriter()
 
     for rm_path in rm_paths:
-        page_pdf = render_page_pdf(rm_path, dpi)
+        page_pdf = render_page_pdf(rm_path, dpi, quality)
         reader = PdfReader(io.BytesIO(page_pdf))
         for page in reader.pages:
             writer.add_page(page)
@@ -151,27 +164,27 @@ def export_pdf(rm_paths: list[Path], dpi: int = DEFAULT_DPI) -> bytes:
     return output.getvalue()
 
 
-def export_pngs_zip(rm_paths: list[Path], dpi: int = DEFAULT_DPI) -> bytes:
+def export_pngs_zip(rm_paths: list[Path], dpi: int = DEFAULT_DPI, quality: str = DEFAULT_QUALITY) -> bytes:
     """Render multiple .rm pages as PNGs and bundle into a ZIP."""
     dpi = validate_dpi(dpi)
     zip_buffer = io.BytesIO()
 
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for i, rm_path in enumerate(rm_paths):
-            png_bytes = render_page_png(rm_path, dpi)
+            png_bytes = render_page_png(rm_path, dpi, quality)
             zf.writestr(f"page_{i:03d}.png", png_bytes)
 
     return zip_buffer.getvalue()
 
 
-def export_mixed_pdf(page_sources: list[dict], dpi: int = DEFAULT_DPI) -> bytes:
+def export_mixed_pdf(page_sources: list[dict], dpi: int = DEFAULT_DPI, quality: str = DEFAULT_QUALITY) -> bytes:
     """Export pages (mix of .rm and PDF-backed) into a single merged PDF."""
     dpi = validate_dpi(dpi)
     writer = PdfWriter()
 
     for source in page_sources:
         if source["type"] == "rm":
-            page_pdf = render_page_pdf(source["path"], dpi)
+            page_pdf = render_page_pdf(source["path"], dpi, quality)
             reader = PdfReader(io.BytesIO(page_pdf))
         else:
             page_pdf = render_pdf_page_pdf(source["path"], source["pdf_page"])
@@ -184,7 +197,7 @@ def export_mixed_pdf(page_sources: list[dict], dpi: int = DEFAULT_DPI) -> bytes:
     return output.getvalue()
 
 
-def export_mixed_zip(page_sources: list[dict], dpi: int = DEFAULT_DPI) -> bytes:
+def export_mixed_zip(page_sources: list[dict], dpi: int = DEFAULT_DPI, quality: str = DEFAULT_QUALITY) -> bytes:
     """Export pages (mix of .rm and PDF-backed) as PNGs in a ZIP."""
     dpi = validate_dpi(dpi)
     zip_buffer = io.BytesIO()
@@ -192,7 +205,7 @@ def export_mixed_zip(page_sources: list[dict], dpi: int = DEFAULT_DPI) -> bytes:
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for i, source in enumerate(page_sources):
             if source["type"] == "rm":
-                png_bytes = render_page_png(source["path"], dpi)
+                png_bytes = render_page_png(source["path"], dpi, quality)
             else:
                 png_bytes = render_pdf_page_png(source["path"], source["pdf_page"], dpi)
             zf.writestr(f"page_{i:03d}.png", png_bytes)

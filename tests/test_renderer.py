@@ -92,3 +92,79 @@ def test_export_png_zip_success(client, mock_parser, mock_renderer):
     resp = client.get("/notebooks/abc-123/export?format=png&dpi=300")
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/zip"
+
+
+# ---- Quality parameter tests ----
+
+
+def test_render_invalid_quality(client, mock_parser, mock_renderer):
+    mock_parser.get_page_source.return_value = {"type": "rm", "path": Path("/fake/path.rm")}
+
+    resp = client.get("/notebooks/abc-123/pages/0/render?quality=invalid")
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "validation_error"
+    assert "quality" in resp.json()["error"]["message"].lower()
+
+
+def test_render_quality_fast(client, mock_parser, mock_renderer):
+    mock_parser.get_page_source.return_value = {"type": "rm", "path": Path("/fake/path.rm")}
+    mock_renderer.render_page_png.return_value = b"\x89PNG fast"
+
+    resp = client.get("/notebooks/abc-123/pages/0/render?format=png&dpi=300&quality=fast")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/png"
+    mock_renderer.render_page_png.assert_called_once_with(Path("/fake/path.rm"), 300, "fast")
+
+
+def test_render_quality_fine(client, mock_parser, mock_renderer):
+    mock_parser.get_page_source.return_value = {"type": "rm", "path": Path("/fake/path.rm")}
+    mock_renderer.render_page_png.return_value = b"\x89PNG fine"
+
+    resp = client.get("/notebooks/abc-123/pages/0/render?format=png&dpi=300&quality=fine")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/png"
+    mock_renderer.render_page_png.assert_called_once_with(Path("/fake/path.rm"), 300, "fine")
+
+
+def test_render_quality_default(client, mock_parser, mock_renderer):
+    """Quality defaults to 'fast' when not specified."""
+    mock_parser.get_page_source.return_value = {"type": "rm", "path": Path("/fake/path.rm")}
+    mock_renderer.render_page_png.return_value = b"\x89PNG default"
+
+    resp = client.get("/notebooks/abc-123/pages/0/render?format=png&dpi=300")
+    assert resp.status_code == 200
+    mock_renderer.render_page_png.assert_called_once_with(Path("/fake/path.rm"), 300, "fast")
+
+
+def test_export_quality_fine(client, mock_parser, mock_renderer):
+    mock_parser.get_notebook.return_value = {
+        "id": "abc-123",
+        "name": "Test",
+        "page_count": 1,
+        "last_modified": "2026-03-12T10:00:00+00:00",
+        "pages": [0],
+    }
+    mock_parser.get_page_source.return_value = {"type": "rm", "path": Path("/fake/0.rm")}
+    mock_renderer.export_mixed_pdf.return_value = b"%PDF-1.4 fine"
+
+    resp = client.get("/notebooks/abc-123/export?format=pdf&dpi=300&quality=fine")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/pdf"
+    mock_renderer.export_mixed_pdf.assert_called_once()
+    args = mock_renderer.export_mixed_pdf.call_args
+    assert args[0][2] == "fine"  # quality is third positional arg
+
+
+def test_export_invalid_quality(client, mock_parser, mock_renderer):
+    mock_parser.get_notebook.return_value = {
+        "id": "abc-123",
+        "name": "Test",
+        "page_count": 1,
+        "last_modified": "2026-03-12T10:00:00+00:00",
+        "pages": [0],
+    }
+
+    resp = client.get("/notebooks/abc-123/export?format=pdf&quality=ultra")
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "validation_error"
+    assert "quality" in resp.json()["error"]["message"].lower()

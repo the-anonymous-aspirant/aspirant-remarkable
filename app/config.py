@@ -7,6 +7,8 @@ SSH_KEY_PATH = os.path.join(SSH_DIR, "id_ed25519")
 
 ALLOWED_DPI = [150, 300, 600, 1200]
 DEFAULT_DPI = 300
+ALLOWED_QUALITY = ["fast", "fine"]
+DEFAULT_QUALITY = "fast"
 SYNC_TIMEOUT = 300  # 5 minutes
 RENDER_TIMEOUT = 60  # seconds — abort renders that take longer
 
