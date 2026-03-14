@@ -67,6 +67,14 @@ _LINE_HEIGHTS = {
 # Eraser, EraseArea) fall back to the standard polyline approach.
 _RIBBON_PEN_TYPES = (Ballpoint, Pencil, Brush, Marker, Calligraphy)
 
+# Map pen types to SVG filter IDs for texture effects.
+_PEN_FILTER = {
+    Pencil: "pencil-grain",
+    Brush: "brush-bristle",
+    Ballpoint: "ballpoint-ink",
+    Calligraphy: "calligraphy-ink",
+}
+
 
 # ====================================================================
 # Public API
@@ -92,13 +100,55 @@ def tree_to_svg_fine(tree: SceneTree, output: io.StringIO) -> None:
     ))
     output.write("\n")
 
-    # Defs — pencil grain filter
+    # Defs — pen texture filters
     output.write("<defs>\n")
+    # Pencil: dual-layer grain (coarse paper texture + fine graphite)
+    # with slight edge displacement for natural graphite-on-paper look
     output.write(
-        '  <filter id="pencil-grain" x="0%" y="0%" width="100%" height="100%">\n'
-        '    <feTurbulence type="fractalNoise" baseFrequency="0.8" '
-        'numOctaves="4" result="noise"/>\n'
-        '    <feComposite in="SourceGraphic" in2="noise" operator="in"/>\n'
+        '  <filter id="pencil-grain" x="-5%" y="-5%" width="110%" height="110%">\n'
+        '    <feTurbulence type="fractalNoise" baseFrequency="0.5" '
+        'numOctaves="4" seed="1" result="coarse"/>\n'
+        '    <feTurbulence type="fractalNoise" baseFrequency="1.5" '
+        'numOctaves="2" seed="2" result="fine"/>\n'
+        '    <feMerge result="grain">\n'
+        '      <feMergeNode in="coarse"/>\n'
+        '      <feMergeNode in="fine"/>\n'
+        '    </feMerge>\n'
+        '    <feDisplacementMap in="SourceGraphic" in2="grain" '
+        'scale="1.2" xChannelSelector="R" yChannelSelector="G" result="displaced"/>\n'
+        '    <feComposite in="displaced" in2="coarse" operator="in"/>\n'
+        "  </filter>\n"
+    )
+    # Brush: elongated bristle streaks via directional turbulence
+    # + displacement for edge irregularity
+    output.write(
+        '  <filter id="brush-bristle" x="-5%" y="-5%" width="110%" height="110%">\n'
+        '    <feTurbulence type="turbulence" baseFrequency="0.03 0.4" '
+        'numOctaves="3" seed="3" result="bristle"/>\n'
+        '    <feDisplacementMap in="SourceGraphic" in2="bristle" '
+        'scale="2.0" xChannelSelector="R" yChannelSelector="G" result="displaced"/>\n'
+        '    <feComposite in="displaced" in2="bristle" operator="in" result="textured"/>\n'
+        '    <feBlend in="SourceGraphic" in2="textured" mode="multiply"/>\n'
+        "  </filter>\n"
+    )
+    # Ballpoint: subtle ink density variation
+    output.write(
+        '  <filter id="ballpoint-ink" x="0%" y="0%" width="100%" height="100%">\n'
+        '    <feTurbulence type="fractalNoise" baseFrequency="1.8" '
+        'numOctaves="3" seed="4" result="ink"/>\n'
+        '    <feColorMatrix in="ink" type="saturate" values="0" result="grey"/>\n'
+        '    <feComponentTransfer in="grey" result="mask">\n'
+        '      <feFuncA type="linear" slope="0.3" intercept="0.7"/>\n'
+        '    </feComponentTransfer>\n'
+        '    <feComposite in="SourceGraphic" in2="mask" operator="in"/>\n'
+        "  </filter>\n"
+    )
+    # Calligraphy: ink pooling at edges (darker edges, lighter centre)
+    output.write(
+        '  <filter id="calligraphy-ink" x="-2%" y="-2%" width="104%" height="104%">\n'
+        '    <feMorphology in="SourceGraphic" operator="erode" radius="0.3" result="inner"/>\n'
+        '    <feGaussianBlur in="inner" stdDeviation="0.5" result="blurred"/>\n'
+        '    <feBlend in="SourceGraphic" in2="blurred" mode="darken"/>\n'
         "  </filter>\n"
     )
     output.write("</defs>\n")
@@ -257,12 +307,14 @@ def _draw_stroke_ribbon(item: si.Line, pen: Pen, output: io.StringIO) -> None:
     color_varies = len(set(colors)) > 1
     opacity_varies = len(set(opacities)) > 1
 
+    filter_id = _PEN_FILTER.get(type(pen))
+
     if color_varies or opacity_varies:
-        _emit_ribbon_chunked(points, widths, colors, opacities, pen, output)
+        _emit_ribbon_chunked(points, widths, colors, opacities, pen, filter_id, output)
     else:
         path_data = _build_ribbon_path(points, widths)
         if path_data:
-            extra = ' filter="url(#pencil-grain)"' if isinstance(pen, Pencil) else ""
+            extra = f' filter="url(#{filter_id})"' if filter_id else ""
             output.write(
                 f'\t\t\t<path d="{path_data}" '
                 f'fill="{colors[0]}" opacity="{opacities[0]}"{extra}/>\n'
@@ -379,12 +431,13 @@ def _emit_ribbon_chunked(
     colors: list[str],
     opacities: list[float],
     pen: Pen,
+    filter_id: tp.Optional[str],
     output: io.StringIO,
 ) -> None:
     """Emit ribbon as small overlapping chunks for per-point style variation."""
     chunk_size = 4
     n = len(points)
-    is_pencil = isinstance(pen, Pencil)
+    extra = f' filter="url(#{filter_id})"' if filter_id else ""
     i = 0
     while i < n - 1:
         end = min(i + chunk_size, n)
@@ -394,7 +447,6 @@ def _emit_ribbon_chunked(
         if len(chunk_pts) >= 2:
             path_data = _build_ribbon_path(chunk_pts, chunk_ws)
             if path_data:
-                extra = ' filter="url(#pencil-grain)"' if is_pencil else ""
                 output.write(
                     f'\t\t\t<path d="{path_data}" '
                     f'fill="{colors[mid]}" opacity="{opacities[mid]}"{extra}/>\n'
